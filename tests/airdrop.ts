@@ -70,6 +70,9 @@ describe("airdrop", () => {
     let _initializerTokenAccount = await getAccount(provider.connection, initializerTokenAccount);
     assert.equal(Number(_initializerTokenAccount.amount), 1000);
 
+  });
+
+  it("Transfer", async () => {
     let _takerTokenAccountA = await getAccount(provider.connection, takerTokenAccountA);
     assert.equal(Number(_takerTokenAccountA.amount), 0);
 
