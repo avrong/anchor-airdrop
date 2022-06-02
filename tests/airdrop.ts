@@ -1,7 +1,7 @@
 import * as anchor from "@project-serum/anchor";
 import { Program } from "@project-serum/anchor";
 import { Airdrop } from "../target/types/airdrop";
-import { TOKEN_PROGRAM_ID, Token, createMint, createAccount, mintTo, getAccount } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, Token, createMint, createAccount, mintTo, getAccount, getAssociatedTokenAddress, createAssociatedTokenAccount } from "@solana/spl-token";
 import { PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import * as assert from "assert";
 
@@ -16,6 +16,8 @@ describe("airdrop", () => {
   let initializerTokenAccount = null;
   let takerTokenAccountA = null;
   let takerTokenAccountB = null;
+  let ataA = null;
+  let ataB = null;
 
   const payer = anchor.web3.Keypair.generate();
   const mintAuthority = anchor.web3.Keypair.generate();
@@ -74,25 +76,48 @@ describe("airdrop", () => {
 
     let _initializerTokenAccount = await getAccount(provider.connection, initializerTokenAccount);
     assert.equal(Number(_initializerTokenAccount.amount), 1000);
-
   });
 
-  it("Transfer", async () => {
+  it("Transfer account to account", async () => {
     let _takerTokenAccountA = await getAccount(provider.connection, takerTokenAccountA);
     assert.equal(Number(_takerTokenAccountA.amount), 0);
+
+    let ataA = await getAssociatedTokenAddress(
+        mint,
+        takerMainAccountA.publicKey
+    );
+
+    // let ataB = await getAssociatedTokenAddress(
+    //     mint,
+    //     takerMainAccountA.publicKey
+    // );
+
+    let ataB = await createAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        mint,
+        takerMainAccountB.publicKey
+    );
+
+    console.log(ataB);
 
     await program.methods.initialize(new anchor.BN(42), mint)
         .accounts({
             initializer: initializerMainAccount.publicKey,
             from: initializerTokenAccount,
             to: takerTokenAccountA,
-            to2: takerMainAccountB.publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID
+            toMain: takerMainAccountB.publicKey,
+            toToken: ataB
         })
+        .remainingAccounts([
+            // { pubkey: takerMainAccountA.publicKey, isWritable: false, isSigner: false },
+            // { pubkey: ataA, isWritable: true, isSigner: false }
+            // { pubkey: takerMainAccountB.publicKey, isWritable: true, isSigner: false }
+        ])
         .signers([initializerMainAccount])
         .rpc();
 
-    _takerTokenAccountA = await getAccount(provider.connection, takerTokenAccountA);
-    assert.equal(Number(_takerTokenAccountA.amount), 42);
+    let _ataB = await getAccount(provider.connection, ataB);
+    assert.equal(Number(_ataB.amount), 42);
   });
 });
