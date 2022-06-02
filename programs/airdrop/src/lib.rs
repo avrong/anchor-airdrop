@@ -7,14 +7,16 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod airdrop {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, amount: u64, token_mint: Pubkey) -> Result<()> {
         let cpi_accounts = Transfer {
             from: ctx.accounts.from.to_account_info().clone(),
             to: ctx.accounts.to.to_account_info().clone(),
             authority: ctx.accounts.initializer.clone(),
         };
         let cpi_context = CpiContext::new(ctx.accounts.token_program.clone(), cpi_accounts);
-        token::transfer(cpi_context, 42);
+        token::transfer(cpi_context, amount);
+
+        
 
         Ok(())
     }
@@ -31,6 +33,10 @@ pub struct Initialize<'info> {
 
     #[account(mut)]
     pub to: Account<'info, TokenAccount>,
+
+    /// CHECK: ???
+    #[account(mut)]
+    pub to2: AccountInfo<'info>,
 
     /// CHECK: ???
     pub token_program: AccountInfo<'info>,

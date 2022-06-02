@@ -35,6 +35,11 @@ describe("airdrop", () => {
       "confirmed"
     );
 
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(initializerMainAccount.publicKey, 10000000000),
+      "confirmed"
+    );
+
     mint = await createMint(
       provider.connection,
       payer,
@@ -76,11 +81,12 @@ describe("airdrop", () => {
     let _takerTokenAccountA = await getAccount(provider.connection, takerTokenAccountA);
     assert.equal(Number(_takerTokenAccountA.amount), 0);
 
-    await program.methods.initialize()
+    await program.methods.initialize(new anchor.BN(42), mint)
         .accounts({
             initializer: initializerMainAccount.publicKey,
             from: initializerTokenAccount,
             to: takerTokenAccountA,
+            to2: takerMainAccountB.publicKey,
             tokenProgram: TOKEN_PROGRAM_ID
         })
         .signers([initializerMainAccount])
