@@ -1,123 +1,253 @@
 import * as anchor from "@project-serum/anchor";
 import { Program } from "@project-serum/anchor";
 import { Airdrop } from "../target/types/airdrop";
-import { TOKEN_PROGRAM_ID, Token, createMint, createAccount, mintTo, getAccount, getAssociatedTokenAddress, createAssociatedTokenAccount } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, Token, createMint, createAccount, mintTo, getAccount, getAssociatedTokenAddress, createAssociatedTokenAccount, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import * as assert from "assert";
 
 describe("airdrop", () => {
-  // Configure the client to use the local cluster.
-  anchor.setProvider(anchor.AnchorProvider.env());
+    // Configure the client to use the local cluster.
+    anchor.setProvider(anchor.AnchorProvider.env());
 
-  const program = anchor.workspace.Airdrop as Program<Airdrop>;
-  const provider = anchor.AnchorProvider.env();
+    const program = anchor.workspace.Airdrop as Program<Airdrop>;
+    const provider = anchor.AnchorProvider.env();
 
-  let mint = null;
-  let initializerTokenAccount = null;
-  let takerTokenAccountA = null;
-  let takerTokenAccountB = null;
-  let ataA = null;
-  let ataB = null;
+    let mint = null;
+    let initializerTokenAccount = null;
+    let takerTokenAccountA = null;
+    let takerTokenAccountB = null;
+    let ataA = null;
+    let ataB = null;
 
-  const payer = anchor.web3.Keypair.generate();
-  const mintAuthority = anchor.web3.Keypair.generate();
-  const initializerMainAccount = anchor.web3.Keypair.generate();
-  const takerMainAccountA = anchor.web3.Keypair.generate();
-  const takerMainAccountB = anchor.web3.Keypair.generate();
+    const payer = anchor.web3.Keypair.generate();
+    const mintAuthority = anchor.web3.Keypair.generate();
+    const initializerMainAccount = anchor.web3.Keypair.generate();
+    const takerMainAccountA = anchor.web3.Keypair.generate();
+    const takerMainAccountB = anchor.web3.Keypair.generate();
 
-  console.log(Token);
+    it("Initialize", async () => {
+        // TODO: Rewrite in anchor.Spl (https://project-serum.github.io/anchor/ts/)
+        let token = anchor.Spl.token(provider);
 
-  it("Is initialized!", async () => {
-    // Add your test here.
-    //const tx = await program.methods.initialize().rpc();
-    //console.log("Your transaction signature", tx);
+        await provider.connection.confirmTransaction(
+            await provider.connection.requestAirdrop(
+                initializerMainAccount.publicKey, 10000000000
+            ),
+            "confirmed"
+        );
 
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(payer.publicKey, 10000000000),
-      "confirmed"
-    );
+        mint = await createMint(
+            provider.connection,
+            provider.wallet.payer,
+            mintAuthority.publicKey,
+            null,
+            0
+        );
 
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(initializerMainAccount.publicKey, 10000000000),
-      "confirmed"
-    );
+        initializerTokenAccount = await createAccount(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            initializerMainAccount.publicKey
+        );
 
-    mint = await createMint(
-      provider.connection,
-      payer,
-      mintAuthority.publicKey,
-      null,
-      0
-    );
+        await mintTo(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            initializerTokenAccount,
+            mintAuthority,
+            10000
+        );
+    })
 
-    initializerTokenAccount = await createAccount(
-        provider.connection,
-        payer,
-        mint,
-        initializerMainAccount.publicKey
-    );
+    it("Simple transfer", async () => {
+        let takerMainAccount = anchor.web3.Keypair.generate();
 
-    takerTokenAccountA = await createAccount(
-        provider.connection,
-        payer,
-        mint,
-        takerMainAccountA.publicKey
-    );
-    // takerTokenAccountB = await mint.createAccount(takerMainAccountB.publicKey);
+        let takerTokenAccount = await createAccount(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            takerMainAccount.publicKey
+        );
 
-    await mintTo(
-        provider.connection,
-        payer,
-        mint,
-        initializerTokenAccount,
-        mintAuthority,
-        1000
-    );
+        await program.methods.transferSimple(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                to: takerTokenAccount,
+            })
+            .signers([initializerMainAccount])
+            .rpc();
 
-    let _initializerTokenAccount = await getAccount(provider.connection, initializerTokenAccount);
-    assert.equal(Number(_initializerTokenAccount.amount), 1000);
-  });
+        let _takerTokenAccount = await getAccount(provider.connection, takerTokenAccount);
+        assert.equal(Number(_takerTokenAccount.amount), 42);
+    });
 
-  it("Transfer account to account", async () => {
-    let _takerTokenAccountA = await getAccount(provider.connection, takerTokenAccountA);
-    assert.equal(Number(_takerTokenAccountA.amount), 0);
+    it("ATA transfer (account exists)", async () => {
+        let takerMainAccount = anchor.web3.Keypair.generate();
 
-    let ataA = await getAssociatedTokenAddress(
-        mint,
-        takerMainAccountA.publicKey
-    );
+        let takerATA = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount.publicKey
+        );
 
-    // let ataB = await getAssociatedTokenAddress(
-    //     mint,
-    //     takerMainAccountA.publicKey
-    // );
+        // Anchor's TS lib does not have and IDL definition for ATA program, so
+        // for now just using a function straight from the @solana/spl-token
+        await createAssociatedTokenAccount(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            takerMainAccount.publicKey
+        );
 
-    let ataB = await createAssociatedTokenAccount(
-        provider.connection,
-        payer,
-        mint,
-        takerMainAccountB.publicKey
-    );
+        await program.methods.transferAta(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                toMain: takerMainAccount.publicKey,
+                toAta: takerATA,
+                mint: mint
+            })
+            .signers([initializerMainAccount])
+            .rpc();
 
-    console.log(ataB);
+        let _takerATA = await getAccount(provider.connection, takerATA);
+        assert.equal(Number(_takerATA.amount), 42);
+    });
 
-    await program.methods.initialize(new anchor.BN(42), mint)
-        .accounts({
-            initializer: initializerMainAccount.publicKey,
-            from: initializerTokenAccount,
-            to: takerTokenAccountA,
-            toMain: takerMainAccountB.publicKey,
-            toToken: ataB
-        })
-        .remainingAccounts([
-            // { pubkey: takerMainAccountA.publicKey, isWritable: false, isSigner: false },
-            // { pubkey: ataA, isWritable: true, isSigner: false }
-            // { pubkey: takerMainAccountB.publicKey, isWritable: true, isSigner: false }
-        ])
-        .signers([initializerMainAccount])
-        .rpc();
+    it("ATA transfer (account not exists)", async () => {
+        let takerMainAccount = anchor.web3.Keypair.generate();
 
-    let _ataB = await getAccount(provider.connection, ataB);
-    assert.equal(Number(_ataB.amount), 42);
-  });
+        let takerATA = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount.publicKey
+        );
+
+        await program.methods.transferAta(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                toMain: takerMainAccount.publicKey,
+                toAta: takerATA,
+                mint: mint
+            })
+            .signers([initializerMainAccount])
+            .rpc();
+
+        let _takerATA = await getAccount(provider.connection, takerATA);
+        assert.equal(Number(_takerATA.amount), 42);
+    });
+
+    it ("Airdrop (accounts exist)", async () => {
+        let takerMainAccount1 = anchor.web3.Keypair.generate();
+        let takerMainAccount2 = anchor.web3.Keypair.generate();
+
+        let takerATA1 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount1.publicKey
+        );
+
+        let takerATA2 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount2.publicKey
+        );
+
+        // Anchor's TS lib does not have and IDL definition for ATA program, so
+        // for now just using a function straight from the @solana/spl-token
+        await createAssociatedTokenAccount(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            takerMainAccount1.publicKey
+        );
+
+        await createAssociatedTokenAccount(
+            provider.connection,
+            provider.wallet.payer,
+            mint,
+            takerMainAccount2.publicKey
+        );
+
+        await program.methods.airdrop(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                mint: mint
+            })
+            .remainingAccounts([
+                {
+                    pubkey: takerMainAccount1.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA1,
+                    isWritable: true, isSigner: false
+                },
+                {
+                    pubkey: takerMainAccount2.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA2,
+                    isWritable: true, isSigner: false
+                }
+            ])
+            .signers([initializerMainAccount])
+            .rpc();
+
+        let _takerATA1 = await getAccount(provider.connection, takerATA1);
+        assert.equal(Number(_takerATA1.amount), 42);
+
+        let _takerATA2 = await getAccount(provider.connection, takerATA2);
+        assert.equal(Number(_takerATA2.amount), 42);
+    });
+
+    it ("Airdrop (accounts not exist)", async () => {
+        let takerMainAccount1 = anchor.web3.Keypair.generate();
+        let takerMainAccount2 = anchor.web3.Keypair.generate();
+
+        let takerATA1 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount1.publicKey
+        );
+
+        let takerATA2 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount2.publicKey
+        );
+
+        await program.methods.airdrop(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                mint: mint
+            })
+            .remainingAccounts([
+                {
+                    pubkey: takerMainAccount1.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA1,
+                    isWritable: true, isSigner: false
+                },
+                {
+                    pubkey: takerMainAccount2.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA2,
+                    isWritable: true, isSigner: false
+                }
+            ])
+            .signers([initializerMainAccount])
+            .rpc();
+
+        let _takerATA1 = await getAccount(provider.connection, takerATA1);
+        assert.equal(Number(_takerATA1.amount), 42);
+
+        let _takerATA2 = await getAccount(provider.connection, takerATA2);
+        assert.equal(Number(_takerATA2.amount), 42);
+    });
 });
