@@ -250,4 +250,44 @@ describe("airdrop", () => {
         let _takerATA2 = await getAccount(provider.connection, takerATA2);
         assert.equal(Number(_takerATA2.amount), 42);
     });
+
+    it ("Airdrop (duplicates)", async () => {
+        let takerMainAccount = anchor.web3.Keypair.generate();
+
+        let takerATA = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount.publicKey
+        );
+
+        await program.methods.airdrop(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                mint: mint
+            })
+            .remainingAccounts([
+                {
+                    pubkey: takerMainAccount.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerMainAccount.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA,
+                    isWritable: true, isSigner: false
+                }
+            ])
+            .signers([initializerMainAccount])
+            .rpc();
+
+        // Check that value is still 42, so tokens were dropped only once
+        let _takerATA = await getAccount(provider.connection, takerATA);
+        assert.equal(Number(_takerATA.amount), 42);
+    });
 });

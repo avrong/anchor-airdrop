@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, Transfer, TokenAccount, Mint};
 use anchor_spl::associated_token::{self, AssociatedToken, Create};
@@ -39,8 +40,9 @@ pub mod airdrop {
     }
 
     pub fn airdrop<'a>(ctx: Context<'_, '_, '_, 'a, Airdrop<'a>>, amount: u64) -> Result<()> {
-        let remaining_accounts = ctx.remaining_accounts.chunks(2);
+        let mut processed_accounts = HashSet::new();
 
+        let remaining_accounts = ctx.remaining_accounts.chunks(2);
         for pair in remaining_accounts {
             let (main_acc, ata) = (&pair[0], &pair[1]);
 
@@ -48,6 +50,17 @@ pub mod airdrop {
                 main_acc.to_account_info().key,
                 ctx.accounts.mint.to_account_info().key,
             );
+
+            // TODO: Should we check that account is writable after creation try?
+            // When we're creating it, it is always writable.
+            if !ata.is_writable {
+                return Err(Error::from(ErrorCode::AccountNotMutable));
+            }
+
+            // Check key is the same as calculated
+            if ata.key != &calculated_ata {
+                return Err(Error::from(ErrorCode::AccountNotAssociatedTokenAccount));
+            }
 
             if ata.data_is_empty() {
                 let cpi_context = ctx.accounts.into_create_ata_context(
@@ -57,18 +70,38 @@ pub mod airdrop {
                 associated_token::create(cpi_context)?;
             }
 
-            assert_eq!(ata.key, &calculated_ata);
-            assert!(!ata.data_is_empty());
+            // Just another check for the fact that account is created.
+            if ata.data_is_empty() {
+                return Err(Error::from(ErrorCode::AccountNotInitialized));
+            }
+
+            // Check that accounts' owners are right
+            if main_acc.owner != &System::id() {
+                return Err(Error::from(ErrorCode::AccountNotSystemOwned));
+            }
+            if ata.owner != &Token::id() {
+                return Err(Error::from(ErrorCode::AccountNotAssociatedTokenAccount));
+            }
+
+            // Check that mint is right & owner is main account
+            let pa: Account<TokenAccount> = Account::try_from_unchecked(&ata)?;
+            if pa.mint != ctx.accounts.mint.to_account_info().key() {
+                return Err(Error::from(ErrorCode::ConstraintTokenMint));
+            }
+            if &pa.owner != main_acc.key {
+                return Err(Error::from(ErrorCode::ConstraintTokenOwner));
+            }
+
+            // Skip duplicates
+            if processed_accounts.contains(ata.key) {
+                continue
+            }
 
             let cpi_context = ctx.accounts.into_transfer_context(ata.clone());
             token::transfer(cpi_context, amount)?;
-        }
 
-        // TODO: check there are no same addressess
-        // TODO: check account is writable
-        // TODO: check owner is SystemProgram
-        // TODO: check owner is TokenProgram
-        // TODO: autority & mint are equal
+            processed_accounts.insert(ata.key);
+        }
 
         Ok(())
     }
