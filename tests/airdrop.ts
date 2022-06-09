@@ -14,16 +14,9 @@ describe("airdrop", () => {
 
     let mint = null;
     let initializerTokenAccount = null;
-    let takerTokenAccountA = null;
-    let takerTokenAccountB = null;
-    let ataA = null;
-    let ataB = null;
 
-    const payer = anchor.web3.Keypair.generate();
     const mintAuthority = anchor.web3.Keypair.generate();
     const initializerMainAccount = anchor.web3.Keypair.generate();
-    const takerMainAccountA = anchor.web3.Keypair.generate();
-    const takerMainAccountB = anchor.web3.Keypair.generate();
 
     it("Initialize", async () => {
         // TODO: Rewrite in anchor.Spl (https://project-serum.github.io/anchor/ts/)
@@ -31,7 +24,8 @@ describe("airdrop", () => {
 
         await provider.connection.confirmTransaction(
             await provider.connection.requestAirdrop(
-                initializerMainAccount.publicKey, 10000000000
+                initializerMainAccount.publicKey,
+                10000000000
             ),
             "confirmed"
         );

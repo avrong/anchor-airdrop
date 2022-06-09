@@ -17,7 +17,7 @@ pub mod airdrop {
         };
         let cpi_context = CpiContext::new(
             ctx.accounts.token_program.to_account_info().clone(),
-            cpi_accounts
+            cpi_accounts,
         );
         token::transfer(cpi_context, amount)?;
 
@@ -32,7 +32,7 @@ pub mod airdrop {
         };
         let cpi_context = CpiContext::new(
             ctx.accounts.token_program.to_account_info().clone(),
-            cpi_accounts
+            cpi_accounts,
         );
         token::transfer(cpi_context, amount)?;
 
@@ -40,6 +40,7 @@ pub mod airdrop {
     }
 
     pub fn airdrop<'a>(ctx: Context<'_, '_, '_, 'a, Airdrop<'a>>, amount: u64) -> Result<()> {
+        // TODO: Maybe filter duplicates here once?
         let mut processed_accounts = HashSet::new();
 
         let remaining_accounts = ctx.remaining_accounts.chunks(2);
