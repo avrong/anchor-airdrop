@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use anchor_lang::prelude::*;
+use anchor_lang::{require, require_eq, require_keys_eq};
 use anchor_spl::token::{self, Token, Transfer, TokenAccount, Mint};
 use anchor_spl::associated_token::{self, AssociatedToken, Create};
 
@@ -54,15 +55,15 @@ pub mod airdrop {
 
             // TODO: Should we check that account is writable after creation try?
             // When we're creating it, it is always writable.
-            if !ata.is_writable {
-                return Err(Error::from(ErrorCode::AccountNotMutable));
-            }
+            require!(ata.is_writable, ErrorCode::AccountNotMutable);
 
             // Check key is the same as calculated
-            if ata.key != &calculated_ata {
-                return Err(Error::from(ErrorCode::AccountNotAssociatedTokenAccount));
-            }
+            require_eq!(
+                ata.key, &calculated_ata,
+                ErrorCode::AccountNotAssociatedTokenAccount,
+            );
 
+            // Create account if it does not exists
             if ata.data_is_empty() {
                 let cpi_context = ctx.accounts.into_create_ata_context(
                     ata.clone(),
@@ -71,27 +72,31 @@ pub mod airdrop {
                 associated_token::create(cpi_context)?;
             }
 
-            // Just another check for the fact that account is created.
-            if ata.data_is_empty() {
-                return Err(Error::from(ErrorCode::AccountNotInitialized));
-            }
+            // Just another check for the fact that account is created
+            require!(!ata.data_is_empty(), ErrorCode::AccountNotInitialized);
 
             // Check that accounts' owners are right
-            if main_acc.owner != &System::id() {
-                return Err(Error::from(ErrorCode::AccountNotSystemOwned));
-            }
-            if ata.owner != &Token::id() {
-                return Err(Error::from(ErrorCode::AccountNotAssociatedTokenAccount));
-            }
+            require_keys_eq!(
+                *main_acc.owner, System::id(),
+                ErrorCode::AccountNotSystemOwned,
+            );
+
+            require_keys_eq!(
+                *ata.owner, Token::id(),
+                ErrorCode::AccountOwnedByWrongProgram,
+            );
 
             // Check that mint is right & owner is main account
             let pa: Account<TokenAccount> = Account::try_from_unchecked(&ata)?;
-            if pa.mint != ctx.accounts.mint.to_account_info().key() {
-                return Err(Error::from(ErrorCode::ConstraintTokenMint));
-            }
-            if &pa.owner != main_acc.key {
-                return Err(Error::from(ErrorCode::ConstraintTokenOwner));
-            }
+            require_keys_eq!(
+                pa.mint, ctx.accounts.mint.to_account_info().key(),
+                ErrorCode::ConstraintTokenMint,
+            );
+
+            require_keys_eq!(
+                pa.owner, *main_acc.key,
+                ErrorCode::ConstraintTokenOwner,
+            );
 
             // Skip duplicates
             if processed_accounts.contains(ata.key) {
