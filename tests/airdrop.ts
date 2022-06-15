@@ -133,7 +133,7 @@ describe("airdrop", () => {
         assert.equal(Number(_takerATA.amount), 42);
     });
 
-    it ("Airdrop (accounts exist)", async () => {
+    it("Airdrop (accounts exist)", async () => {
         let takerMainAccount1 = anchor.web3.Keypair.generate();
         let takerMainAccount2 = anchor.web3.Keypair.generate();
 
@@ -197,7 +197,7 @@ describe("airdrop", () => {
         assert.equal(Number(_takerATA2.amount), 42);
     });
 
-    it ("Airdrop (accounts not exist)", async () => {
+    it("Airdrop (accounts not exist)", async () => {
         let takerMainAccount1 = anchor.web3.Keypair.generate();
         let takerMainAccount2 = anchor.web3.Keypair.generate();
 
@@ -245,7 +245,7 @@ describe("airdrop", () => {
         assert.equal(Number(_takerATA2.amount), 42);
     });
 
-    it ("Airdrop (duplicates)", async () => {
+    it("Airdrop (duplicates)", async () => {
         let takerMainAccount = anchor.web3.Keypair.generate();
 
         let takerATA = await getAssociatedTokenAddress(
@@ -283,5 +283,88 @@ describe("airdrop", () => {
         // Check that value is still 42, so tokens were dropped only once
         let _takerATA = await getAccount(provider.connection, takerATA);
         assert.equal(Number(_takerATA.amount), 42);
+    });
+
+    it("Airdrop (accounts not exist)", async () => {
+        let takerMainAccount1 = anchor.web3.Keypair.generate();
+        let takerMainAccount2 = anchor.web3.Keypair.generate();
+
+        let takerATA1 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount1.publicKey
+        );
+
+        let takerATA2 = await getAssociatedTokenAddress(
+            mint,
+            takerMainAccount2.publicKey
+        );
+
+        await program.methods.airdrop(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                mint: mint
+            })
+            .remainingAccounts([
+                {
+                    pubkey: takerMainAccount1.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA1,
+                    isWritable: true, isSigner: false
+                },
+                {
+                    pubkey: takerMainAccount2.publicKey,
+                    isWritable: false, isSigner: false
+                },
+                {
+                    pubkey: takerATA2,
+                    isWritable: true, isSigner: false
+                }
+            ])
+            .signers([initializerMainAccount])
+            .rpc();
+
+        let _takerATA1 = await getAccount(provider.connection, takerATA1);
+        assert.equal(Number(_takerATA1.amount), 42);
+
+        let _takerATA2 = await getAccount(provider.connection, takerATA2);
+        assert.equal(Number(_takerATA2.amount), 42);
+    });
+
+    it ("Test max taker accounts", async () => {
+        // Computational budget exceeded if > 4
+        // Transaction too large if > 11
+        const TAKERS_COUNT = 3;
+
+        let takerMainAccounts = Array(TAKERS_COUNT).fill(null);
+        let takerTokenAccounts = Array(TAKERS_COUNT).fill(null);
+
+        for (let ti in takerMainAccounts) {
+            takerMainAccounts[ti] = anchor.web3.Keypair.generate();
+            takerTokenAccounts[ti] = await getAssociatedTokenAddress(
+                mint, takerMainAccounts[ti].publicKey
+            );
+        }
+
+        await program.methods.airdrop(new anchor.BN(42))
+            .accounts({
+                initializer: initializerMainAccount.publicKey,
+                from: initializerTokenAccount,
+                mint: mint
+            })
+            .remainingAccounts(
+                takerMainAccounts.map((v, i) => [
+                    { pubkey: v.publicKey, isWritable: false, isSigner: false },
+                    { pubkey: takerTokenAccounts[i], isWritable: true, isSigner: false }
+                ]).flat()
+            )
+            .signers([initializerMainAccount])
+            .rpc();
+
+        // Check that value is still 42, so tokens were dropped only once
+        // let _takerATA = await getAccount(provider.connection, takerATA);
+        // assert.equal(Number(_takerATA.amount), 42);
     });
 });
